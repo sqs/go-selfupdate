@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -59,19 +60,24 @@ func newGzReader(r io.ReadCloser) io.ReadCloser {
 	return g
 }
 
-func createUpdate(path string, platform string) {
+func createUpdate(cmdName, path string, platform string) {
 	c := current{Version: version, Sha256: generateSha256(path)}
 
 	b, err := json.MarshalIndent(c, "", "    ")
 	if err != nil {
 		fmt.Println("error:", err)
 	}
-	err = ioutil.WriteFile(filepath.Join(genDir, platform+".json"), b, 0755)
+
+	if err := os.MkdirAll(filepath.Join(genDir, platform), 0700); err != nil {
+		log.Fatal(err)
+	}
+
+	err = ioutil.WriteFile(filepath.Join(genDir, platform, cmdName+".json"), b, 0755)
 	if err != nil {
 		panic(err)
 	}
 
-	os.MkdirAll(filepath.Join(genDir, version), 0755)
+	os.MkdirAll(filepath.Join(genDir, version, platform), 0755)
 
 	var buf bytes.Buffer
 	w := gzip.NewWriter(&buf)
@@ -81,7 +87,7 @@ func createUpdate(path string, platform string) {
 	}
 	w.Write(f)
 	w.Close() // You must close this first to flush the bytes to the buffer.
-	err = ioutil.WriteFile(filepath.Join(genDir, version, platform+".gz"), buf.Bytes(), 0755)
+	err = ioutil.WriteFile(filepath.Join(genDir, version, platform, cmdName+".gz"), buf.Bytes(), 0755)
 
 	files, err := ioutil.ReadDir(genDir)
 	if err != nil {
@@ -96,16 +102,16 @@ func createUpdate(path string, platform string) {
 			continue
 		}
 
-		os.Mkdir(filepath.Join(genDir, file.Name(), version), 0755)
+		os.Mkdir(filepath.Join(genDir, file.Name(), version, platform), 0755)
 
-		fName := filepath.Join(genDir, file.Name(), platform+".gz")
+		fName := filepath.Join(genDir, file.Name(), platform, cmdName+".gz")
 		old, err := os.Open(fName)
 		if err != nil {
 			// Don't have an old release for this os/arch, continue on
 			continue
 		}
 
-		fName = filepath.Join(genDir, version, platform+".gz")
+		fName = filepath.Join(genDir, version, platform, cmdName+".gz")
 		newF, err := os.Open(fName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Can't open %s: error: %s\n", fName, err)
@@ -120,7 +126,7 @@ func createUpdate(path string, platform string) {
 		if err := binarydist.Diff(ar, br, patch); err != nil {
 			panic(err)
 		}
-		ioutil.WriteFile(filepath.Join(genDir, file.Name(), version, platform), patch.Bytes(), 0755)
+		ioutil.WriteFile(filepath.Join(genDir, file.Name(), version, platform, cmdName), patch.Bytes(), 0755)
 	}
 }
 
@@ -137,6 +143,8 @@ func createBuildDir() {
 
 func main() {
 	outputDirFlag := flag.String("o", "public", "Output directory for writing updates")
+
+	cmdNameFlag := flag.String("cmd", "", "Name of command (program)")
 
 	var defaultPlatform string
 	goos := os.Getenv("GOOS")
@@ -157,6 +165,7 @@ func main() {
 	}
 
 	platform := *platformFlag
+	cmdName := *cmdNameFlag
 	appPath := flag.Arg(0)
 	version = flag.Arg(1)
 	genDir = *outputDirFlag
@@ -167,10 +176,10 @@ func main() {
 	files, err := ioutil.ReadDir(appPath)
 	if err == nil {
 		for _, file := range files {
-			createUpdate(filepath.Join(appPath, file.Name()), file.Name())
+			createUpdate(cmdName, filepath.Join(appPath, file.Name()), file.Name())
 		}
 		os.Exit(0)
 	}
 
-	createUpdate(appPath, platform)
+	createUpdate(cmdName, appPath, platform)
 }

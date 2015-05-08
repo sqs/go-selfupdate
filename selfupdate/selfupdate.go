@@ -42,8 +42,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/kardianos/osext"
 	"github.com/inconshreveable/go-update"
+	"github.com/kardianos/osext"
 	"github.com/kr/binarydist"
 )
 
@@ -107,7 +107,7 @@ func (u *Updater) BackgroundRun() error {
 		//return
 		//}
 		// TODO(bgentry): logger isn't on Windows. Replace w/ proper error reports.
-		if err := u.update(); err != nil {
+		if err := u.Update(); err != nil {
 			return err
 		}
 	}
@@ -123,7 +123,7 @@ func (u *Updater) wantUpdate() bool {
 	return writeTime(path, time.Now().Add(wait))
 }
 
-func (u *Updater) update() error {
+func (u *Updater) Update() error {
 	path, err := osext.Executable()
 	if err != nil {
 		return err
@@ -134,33 +134,34 @@ func (u *Updater) update() error {
 	}
 	defer old.Close()
 
-	err = u.fetchInfo()
+	err = u.Check()
 	if err != nil {
 		return err
 	}
 	if u.Info.Version == u.CurrentVersion {
 		return nil
 	}
-	bin, err := u.fetchAndVerifyPatch(old)
+	// TODO(sqs): reenable fetching just the patch
+	/*bin, err := u.fetchAndVerifyPatch(old)
 	if err != nil {
 		if err == ErrHashMismatch {
-			log.Println("update: hash mismatch from patched binary")
+			log.Println("update: hash mismatch from patched binary, downloading full binary")
 		} else {
 			if u.DiffURL != "" {
-				log.Println("update: patching binary,", err)
+				log.Println("update: downloading full binary because patching binary failed:", err)
 			}
-		}
+		}*/
 
-		bin, err = u.fetchAndVerifyFullBin()
-		if err != nil {
-			if err == ErrHashMismatch {
-				log.Println("update: hash mismatch from full binary")
-			} else {
-				log.Println("update: fetching full binary,", err)
-			}
-			return err
+	bin, err := u.fetchAndVerifyFullBin()
+	if err != nil {
+		if err == ErrHashMismatch {
+			log.Println("update: hash mismatch from full binary")
+		} else {
+			log.Println("update: fetching full binary failed:", err)
 		}
+		return err
 	}
+	//}
 
 	// close the old binary before installing because on windows
 	// it can't be renamed if a handle to the file is still open
@@ -176,8 +177,8 @@ func (u *Updater) update() error {
 	return nil
 }
 
-func (u *Updater) fetchInfo() error {
-	r, err := fetch(u.ApiURL + u.CmdName + "/" + plat + ".json")
+func (u *Updater) Check() error {
+	r, err := fetch(u.ApiURL + u.CmdName + "/" + plat + "/" + u.CmdName + ".json")
 	if err != nil {
 		return err
 	}
@@ -204,7 +205,7 @@ func (u *Updater) fetchAndVerifyPatch(old io.Reader) ([]byte, error) {
 }
 
 func (u *Updater) fetchAndApplyPatch(old io.Reader) ([]byte, error) {
-	r, err := fetch(u.DiffURL + u.CmdName + "/" + u.CurrentVersion + "/" + u.Info.Version + "/" + plat)
+	r, err := fetch(u.DiffURL + u.CmdName + "/" + u.CurrentVersion + "/" + u.Info.Version + "/" + plat + "/" + u.CmdName)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +228,7 @@ func (u *Updater) fetchAndVerifyFullBin() ([]byte, error) {
 }
 
 func (u *Updater) fetchBin() ([]byte, error) {
-	r, err := fetch(u.BinURL + u.CmdName + "/" + u.Info.Version + "/" + plat + ".gz")
+	r, err := fetch(u.BinURL + u.CmdName + "/" + u.Info.Version + "/" + plat + "/" + u.CmdName + ".gz")
 	if err != nil {
 		return nil, err
 	}
